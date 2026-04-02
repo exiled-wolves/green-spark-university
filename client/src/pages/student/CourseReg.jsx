@@ -20,10 +20,15 @@ const CourseReg = () => {
     setLoading(true);
     Promise.all([getAvailableCourses(), getRegisteredCourses()])
       .then(([aRes, rRes]) => {
+        console.log('[v0] Available courses response:', aRes.data);
+        console.log('[v0] Registered courses response:', rRes.data);
         setAvailable(aRes.data.courses || []);
         setRegistered(rRes.data.courses || []);
       })
-      .catch(() => setError('Failed to load courses.'))
+      .catch((err) => {
+        console.log('[v0] Course fetch error:', err.response?.data || err.message);
+        setError('Failed to load courses.');
+      })
       .finally(() => setLoading(false));
   };
 
@@ -115,7 +120,7 @@ const CourseReg = () => {
                     return (
                       <tr key={c.id}>
                         <td><span className="badge badge-navy">{c.course_code}</span></td>
-                        <td>{c.course_name}</td>
+                        <td>{c.course_name || c.title}</td>
                         <td>{c.credit_units}</td>
                         <td style={{ textTransform: 'capitalize' }}>{c.semester}</td>
                         <td>{c.level}</td>
@@ -164,7 +169,7 @@ const CourseReg = () => {
                 {registered.map(c => (
                   <tr key={c.id}>
                     <td><span className="badge badge-navy">{c.course_code}</span></td>
-                    <td>{c.course_name}</td>
+                    <td>{c.course_name || c.title}</td>
                     <td>{c.credit_units}</td>
                     <td style={{ textTransform: 'capitalize' }}>{c.semester}</td>
                     <td>{c.level}</td>

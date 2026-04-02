@@ -14,8 +14,14 @@ const Leaves = () => {
   const fetchLeaves = (status) => {
     setLoading(true);
     getLeaveApplications(status)
-      .then(res => setLeaves(res.data.leaves))
-      .catch(() => setError('Failed to load leave applications.'))
+      .then(res => {
+        console.log('[v0] Admin leaves response:', res.data);
+        setLeaves(res.data.leaves || []);
+      })
+      .catch((err) => {
+        console.log('[v0] Admin leaves error:', err.response?.data || err.message);
+        setError('Failed to load leave applications.');
+      })
       .finally(() => setLoading(false));
   };
 
