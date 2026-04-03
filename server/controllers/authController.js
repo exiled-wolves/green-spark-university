@@ -1,6 +1,6 @@
 const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
-const pool    = require('../config/db');
+const db = require('../config/db');
 require('dotenv').config();
 
 // ─────────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@ const login = async (req, res, next) => {
     let role = null;
 
     // 1️⃣  Check admins table (login by email)
-    const [admins] = await pool.query(
+    const [admins] = await db.query(
       'SELECT * FROM admins WHERE email = ?',
       [login_id]
     );
@@ -44,7 +44,7 @@ const login = async (req, res, next) => {
 
     // 2️⃣  Check students table (login by login_id e.g. GSU/CSC/25/4821)
     if (!user) {
-      const [students] = await pool.query(
+      const [students] = await db.query(
         `SELECT s.*, d.name AS department_name, d.acronym AS department_acronym
          FROM students s
          JOIN departments d ON s.department_id = d.id
@@ -59,7 +59,7 @@ const login = async (req, res, next) => {
 
     // 3️⃣  Check lecturers table (login by login_id e.g. GSU-LEC-0042)
     if (!user) {
-      const [lecturers] = await pool.query(
+      const [lecturers] = await db.query(
         `SELECT l.*, d.name AS department_name
          FROM lecturers l
          JOIN departments d ON l.department_id = d.id
@@ -146,7 +146,7 @@ const changePassword = async (req, res, next) => {
 
     // Fetch user from correct table
     const table = role === 'student' ? 'students' : 'lecturers';
-    const [rows] = await pool.query(
+    const [rows] = await db.query(
       `SELECT id, password, is_first_login FROM ${table} WHERE id = ?`,
       [id]
     );
@@ -167,7 +167,7 @@ const changePassword = async (req, res, next) => {
     const hashed = await bcrypt.hash(new_password, 10);
 
     // Update DB — also clears is_first_login flag
-    await pool.query(
+    await db.query(
       `UPDATE ${table} SET password = ?, is_first_login = 0 WHERE id = ?`,
       [hashed, id]
     );
@@ -209,7 +209,7 @@ const getMe = async (req, res, next) => {
                WHERE l.id = ?`;
     }
 
-    const [rows] = await pool.query(query, [id]);
+    const [rows] = await db.query(query, [id]);
 
     if (rows.length === 0) {
       return res.status(404).json({ message: 'User not found.' });

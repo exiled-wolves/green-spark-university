@@ -1,4 +1,4 @@
-const pool               = require('../config/db');
+const db = require('../config/db');
 const { calculateGrade } = require('../utils/gradeCalculator');
 
 // ═══════════════════════════════════════════════════════════════
@@ -8,7 +8,7 @@ const { calculateGrade } = require('../utils/gradeCalculator');
 // GET /api/lecturer/profile
 const getProfile = async (req, res, next) => {
   try {
-    const [rows] = await pool.query(
+    const [rows] = await db.query(
       `SELECT l.id, l.login_id, l.full_name, l.email, l.phone,
               l.qualification, l.passport_photo, l.status,
               l.is_first_login, l.created_at,
@@ -49,7 +49,7 @@ const updateProfile = async (req, res, next) => {
     }
 
     params.push(req.user.id);
-    await pool.query(
+    await db.query(
       `UPDATE lecturers SET ${fields.join(', ')} WHERE id = ?`,
       params
     );
@@ -73,7 +73,7 @@ const getAssignedCourses = async (req, res, next) => {
     // Default to current session if not specified
     let targetSession = session;
     if (!targetSession) {
-      const [sessionRows] = await pool.query(
+      const [sessionRows] = await db.query(
         'SELECT session FROM academic_sessions WHERE is_current = 1 LIMIT 1'
       );
       targetSession = sessionRows[0]?.session || null;
@@ -99,7 +99,7 @@ const getAssignedCourses = async (req, res, next) => {
 
     query += ' GROUP BY ca.id ORDER BY ca.session DESC, c.course_code ASC';
 
-    const [courses] = await pool.query(query, params);
+    const [courses] = await db.query(query, params);
     return res.status(200).json({ courses, session: targetSession });
   } catch (err) {
     next(err);
@@ -123,7 +123,7 @@ const getEnrolledStudents = async (req, res, next) => {
     if (session)  { assignmentQuery += ' AND ca.session = ?';  assignParams.push(session); }
     if (semester) { assignmentQuery += ' AND ca.semester = ?'; assignParams.push(semester); }
 
-    const [assignment] = await pool.query(assignmentQuery, assignParams);
+    const [assignment] = await db.query(assignmentQuery, assignParams);
     if (assignment.length === 0) {
       return res.status(403).json({
         message: 'This course is not assigned to you or does not exist.',
@@ -133,13 +133,13 @@ const getEnrolledStudents = async (req, res, next) => {
     // Get current session fallback
     let targetSession = session;
     if (!targetSession) {
-      const [sessionRows] = await pool.query(
+      const [sessionRows] = await db.query(
         'SELECT session FROM academic_sessions WHERE is_current = 1 LIMIT 1'
       );
       targetSession = sessionRows[0]?.session || null;
     }
 
-    const [students] = await pool.query(
+    const [students] = await db.query(
       `SELECT s.id, s.login_id, s.full_name, s.email, s.phone, s.level,
               cr.semester, cr.registered_at,
               r.ca_score, r.exam_score, r.total_score, r.grade, r.remark
@@ -188,7 +188,7 @@ const uploadResult = async (req, res, next) => {
     }
 
     // Confirm course is assigned to this lecturer
-    const [assignment] = await pool.query(
+    const [assignment] = await db.query(
       `SELECT id FROM course_assignments
        WHERE course_id = ? AND lecturer_id = ? AND session = ? AND semester = ?`,
       [course_id, req.user.id, session, semester]
@@ -200,7 +200,7 @@ const uploadResult = async (req, res, next) => {
     }
 
     // Confirm student is enrolled in this course
-    const [enrollment] = await pool.query(
+    const [enrollment] = await db.query(
       `SELECT id FROM course_registrations
        WHERE student_id = ? AND course_id = ? AND session = ? AND semester = ?`,
       [student_id, course_id, session, semester]
@@ -216,22 +216,23 @@ const uploadResult = async (req, res, next) => {
     const { grade, remark } = calculateGrade(total);
 
     // Upsert result — insert or update if already exists
-    await pool.query(
+    await db.query(
       `INSERT INTO results
-         (student_id, course_id, lecturer_id, session, semester, ca_score, exam_score, grade, remark)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         ca_score    = VALUES(ca_score),
-         exam_score  = VALUES(exam_score),
-         grade       = VALUES(grade),
-         remark      = VALUES(remark),
-         lecturer_id = VALUES(lecturer_id),
+         (student_id, course_id, lecturer_id, session, semester, ca_score, exam_score, total_score, grade, remark)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (student_id, course_id, session, semester) DO UPDATE SET
+         ca_score    = EXCLUDED.ca_score,
+         exam_score  = EXCLUDED.exam_score,
+         total_score = EXCLUDED.total_score,
+         grade       = EXCLUDED.grade,
+         remark      = EXCLUDED.remark,
+         lecturer_id = EXCLUDED.lecturer_id,
          updated_at  = CURRENT_TIMESTAMP`,
-      [student_id, course_id, req.user.id, session, semester, ca, exam, grade, remark]
+      [student_id, course_id, req.user.id, session, semester, ca, exam, total, grade, remark]
     );
 
     // Fetch course title for notification
-    const [courseRows] = await pool.query(
+    const [courseRows] = await db.query(
       'SELECT title, course_code FROM courses WHERE id = ?',
       [course_id]
     );
@@ -240,7 +241,7 @@ const uploadResult = async (req, res, next) => {
       : 'a course';
 
     // Trigger notification to student (Rule 4)
-    await pool.query(
+    await db.query(
       `INSERT INTO notifications (recipient_type, recipient_id, title, message)
        VALUES ('student', ?, ?, ?)`,
       [
@@ -272,7 +273,7 @@ const uploadBulkResults = async (req, res, next) => {
     }
 
     // Confirm course is assigned to this lecturer
-    const [assignment] = await pool.query(
+    const [assignment] = await db.query(
       `SELECT id FROM course_assignments
        WHERE course_id = ? AND lecturer_id = ? AND session = ? AND semester = ?`,
       [course_id, req.user.id, session, semester]
@@ -283,7 +284,7 @@ const uploadBulkResults = async (req, res, next) => {
       });
     }
 
-    const [courseRows] = await pool.query(
+    const [courseRows] = await db.query(
       'SELECT title, course_code FROM courses WHERE id = ?', [course_id]
     );
     const courseTitle = courseRows[0]
@@ -306,7 +307,7 @@ const uploadBulkResults = async (req, res, next) => {
       }
 
       // Check enrollment
-      const [enrolled] = await pool.query(
+      const [enrolled] = await db.query(
         `SELECT id FROM course_registrations
          WHERE student_id = ? AND course_id = ? AND session = ? AND semester = ?`,
         [student_id, course_id, session, semester]
@@ -319,19 +320,19 @@ const uploadBulkResults = async (req, res, next) => {
       const total = (ca || 0) + (exam || 0);
       const { grade, remark } = calculateGrade(total);
 
-      await pool.query(
+      await db.query(
         `INSERT INTO results
-           (student_id, course_id, lecturer_id, session, semester, ca_score, exam_score, grade, remark)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           ca_score = VALUES(ca_score), exam_score = VALUES(exam_score),
-           grade = VALUES(grade), remark = VALUES(remark),
-           lecturer_id = VALUES(lecturer_id), updated_at = CURRENT_TIMESTAMP`,
-        [student_id, course_id, req.user.id, session, semester, ca, exam, grade, remark]
+           (student_id, course_id, lecturer_id, session, semester, ca_score, exam_score, total_score, grade, remark)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (student_id, course_id, session, semester) DO UPDATE SET
+           ca_score = EXCLUDED.ca_score, exam_score = EXCLUDED.exam_score,
+           total_score = EXCLUDED.total_score, grade = EXCLUDED.grade, remark = EXCLUDED.remark,
+           lecturer_id = EXCLUDED.lecturer_id, updated_at = CURRENT_TIMESTAMP`,
+        [student_id, course_id, req.user.id, session, semester, ca, exam, total, grade, remark]
       );
 
       // Notify student
-      await pool.query(
+      await db.query(
         `INSERT INTO notifications (recipient_type, recipient_id, title, message)
          VALUES ('student', ?, ?, ?)`,
         [
@@ -371,7 +372,7 @@ const reportStudent = async (req, res, next) => {
     }
 
     // Confirm the course is assigned to this lecturer
-    const [assignment] = await pool.query(
+    const [assignment] = await db.query(
       'SELECT id FROM course_assignments WHERE course_id = ? AND lecturer_id = ?',
       [course_id, req.user.id]
     );
@@ -382,7 +383,7 @@ const reportStudent = async (req, res, next) => {
     }
 
     // Confirm student exists
-    const [studentRows] = await pool.query(
+    const [studentRows] = await db.query(
       'SELECT id, full_name FROM students WHERE id = ?',
       [student_id]
     );
@@ -390,7 +391,7 @@ const reportStudent = async (req, res, next) => {
       return res.status(404).json({ message: 'Student not found.' });
     }
 
-    await pool.query(
+    await db.query(
       `INSERT INTO student_reports (lecturer_id, student_id, course_id, reason)
        VALUES (?, ?, ?, ?)`,
       [req.user.id, student_id, course_id, reason.trim()]
@@ -408,7 +409,7 @@ const reportStudent = async (req, res, next) => {
 // Rule 5 — view own filed reports
 const getMyReports = async (req, res, next) => {
   try {
-    const [reports] = await pool.query(
+    const [reports] = await db.query(
       `SELECT sr.id, sr.reason, sr.status, sr.created_at,
               s.full_name AS student_name, s.login_id AS student_login_id,
               c.course_code, c.title AS course_title
@@ -453,7 +454,7 @@ const applyForLeave = async (req, res, next) => {
     }
 
     // Check if lecturer already has a pending leave
-    const [pending] = await pool.query(
+    const [pending] = await db.query(
       `SELECT id FROM leave_applications
        WHERE lecturer_id = ? AND status = 'pending'`,
       [req.user.id]
@@ -464,7 +465,7 @@ const applyForLeave = async (req, res, next) => {
       });
     }
 
-    await pool.query(
+    await db.query(
       `INSERT INTO leave_applications
          (lecturer_id, leave_type, start_date, end_date, reason)
        VALUES (?, ?, ?, ?, ?)`,
@@ -483,7 +484,7 @@ const applyForLeave = async (req, res, next) => {
 // Rule 5 — view own leave application history
 const getMyLeaves = async (req, res, next) => {
   try {
-    const [leaves] = await pool.query(
+    const [leaves] = await db.query(
       `SELECT id, leave_type, start_date, end_date, reason,
               status, admin_comment, created_at, updated_at
        FROM leave_applications
@@ -511,7 +512,7 @@ const submitComplaint = async (req, res, next) => {
       return res.status(400).json({ message: 'Subject and message are required.' });
     }
 
-    await pool.query(
+    await db.query(
       `INSERT INTO complaints (sender_type, sender_id, subject, message)
        VALUES ('lecturer', ?, ?, ?)`,
       [req.user.id, subject.trim(), message.trim()]
@@ -527,7 +528,7 @@ const submitComplaint = async (req, res, next) => {
 // Rule 5 — view own complaint history + admin replies
 const getMyComplaints = async (req, res, next) => {
   try {
-    const [complaints] = await pool.query(
+    const [complaints] = await db.query(
       `SELECT id, subject, message, status, admin_reply, created_at, updated_at
        FROM complaints
        WHERE sender_type = 'lecturer' AND sender_id = ?
