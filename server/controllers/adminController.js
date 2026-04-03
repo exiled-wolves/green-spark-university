@@ -1,5 +1,5 @@
 const bcrypt   = require('bcryptjs');
-const pool     = require('../config/db');
+const db = require('../config/db');
 const { sendAdmissionEmail, sendRejectionEmail } = require('../config/mailer');
 const { generateStudentLoginId, generateLecturerLoginId } = require('../utils/generateLoginID');
 
@@ -28,7 +28,7 @@ const getApplications = async (req, res, next) => {
 
     query += ' ORDER BY a.created_at DESC';
 
-    const [applicants] = await pool.query(query, params);
+    const [applicants] = await db.query(query, params);
     return res.status(200).json({ applicants });
   } catch (err) {
     next(err);
@@ -39,7 +39,7 @@ const getApplications = async (req, res, next) => {
 // Single applicant full detail
 const getApplicationById = async (req, res, next) => {
   try {
-    const [rows] = await pool.query(
+    const [rows] = await db.query(
       `SELECT a.*, d.name AS department_name, d.acronym AS department_acronym
        FROM applicants a
        JOIN departments d ON a.department_id = d.id
@@ -63,7 +63,7 @@ const getApplicationById = async (req, res, next) => {
 //   4. Update applicant status to 'accepted'
 //   5. Send admission email with Login ID + password
 const acceptApplication = async (req, res, next) => {
-  const conn = await pool.getConnection();
+  const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
 
@@ -164,7 +164,7 @@ const acceptApplication = async (req, res, next) => {
 // Rule 2 — Reject applicant and send rejection email
 const rejectApplication = async (req, res, next) => {
   try {
-    const [rows] = await pool.query(
+    const [rows] = await db.query(
       `SELECT a.*, d.name AS department_name
        FROM applicants a
        JOIN departments d ON a.department_id = d.id
@@ -184,7 +184,7 @@ const rejectApplication = async (req, res, next) => {
       });
     }
 
-    await pool.query(
+    await db.query(
       "UPDATE applicants SET status = 'rejected' WHERE id = ?",
       [applicant.id]
     );
@@ -232,7 +232,7 @@ const getAllStudents = async (req, res, next) => {
 
     query += ' ORDER BY s.full_name ASC';
 
-    const [students] = await pool.query(query, params);
+    const [students] = await db.query(query, params);
     return res.status(200).json({ students });
   } catch (err) {
     next(err);
@@ -242,7 +242,7 @@ const getAllStudents = async (req, res, next) => {
 // GET /api/admin/students/:id
 const getStudentById = async (req, res, next) => {
   try {
-    const [rows] = await pool.query(
+    const [rows] = await db.query(
       `SELECT s.*, d.name AS department_name, d.acronym
        FROM students s
        JOIN departments d ON s.department_id = d.id
@@ -267,7 +267,7 @@ const updateStudentStatus = async (req, res, next) => {
     if (!['active', 'suspended'].includes(status)) {
       return res.status(400).json({ message: 'Status must be active or suspended.' });
     }
-    await pool.query('UPDATE students SET status = ? WHERE id = ?', [status, req.params.id]);
+    await db.query('UPDATE students SET status = ? WHERE id = ?', [status, req.params.id]);
     return res.status(200).json({ message: `Student status updated to ${status}.` });
   } catch (err) {
     next(err);
@@ -290,14 +290,14 @@ const addLecturer = async (req, res, next) => {
       });
     }
 
-    const [deptRows] = await pool.query(
+    const [deptRows] = await db.query(
       'SELECT id FROM departments WHERE id = ?', [department_id]
     );
     if (deptRows.length === 0) {
       return res.status(400).json({ message: 'Department not found.' });
     }
 
-    const [dupEmail] = await pool.query(
+    const [dupEmail] = await db.query(
       'SELECT id FROM lecturers WHERE email = ?', [email]
     );
     if (dupEmail.length > 0) {
@@ -310,7 +310,7 @@ const addLecturer = async (req, res, next) => {
 
     const passport_photo = req.file ? `/uploads/${req.file.filename}` : null;
 
-    await pool.query(
+    await db.query(
       `INSERT INTO lecturers
         (login_id, full_name, email, password, department_id,
          phone, qualification, passport_photo, is_first_login, status)
@@ -353,7 +353,7 @@ const getAllLecturers = async (req, res, next) => {
     if (department_id) { query += ' AND l.department_id = ?'; params.push(department_id); }
     query += ' ORDER BY l.full_name ASC';
 
-    const [lecturers] = await pool.query(query, params);
+    const [lecturers] = await db.query(query, params);
     return res.status(200).json({ lecturers });
   } catch (err) {
     next(err);
@@ -363,7 +363,7 @@ const getAllLecturers = async (req, res, next) => {
 // GET /api/admin/lecturers/:id
 const getLecturerById = async (req, res, next) => {
   try {
-    const [rows] = await pool.query(
+    const [rows] = await db.query(
       `SELECT l.*, d.name AS department_name
        FROM lecturers l
        JOIN departments d ON l.department_id = d.id
@@ -387,7 +387,7 @@ const updateLecturerStatus = async (req, res, next) => {
     if (!['active', 'on_leave', 'suspended'].includes(status)) {
       return res.status(400).json({ message: 'Invalid status value.' });
     }
-    await pool.query('UPDATE lecturers SET status = ? WHERE id = ?', [status, req.params.id]);
+    await db.query('UPDATE lecturers SET status = ? WHERE id = ?', [status, req.params.id]);
     return res.status(200).json({ message: `Lecturer status updated to ${status}.` });
   } catch (err) {
     next(err);
@@ -418,17 +418,18 @@ const addCourse = async (req, res, next) => {
       return res.status(400).json({ message: 'Level must be 100, 200, 300, 400 or 500.' });
     }
 
-    const [dup] = await pool.query(
+    const [dup] = await db.query(
       'SELECT id FROM courses WHERE course_code = ?', [course_code]
     );
     if (dup.length > 0) {
       return res.status(409).json({ message: 'A course with this code already exists.' });
     }
 
-    const [result] = await pool.query(
+    const [result] = await db.query(
       `INSERT INTO courses
         (course_code, title, description, credit_units, department_id, level, semester)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       RETURNING id`,
       [
         course_code.trim().toUpperCase(),
         title.trim(),
@@ -442,7 +443,7 @@ const addCourse = async (req, res, next) => {
 
     return res.status(201).json({
       message: 'Course added successfully.',
-      course_id: result.insertId,
+      course_id: result[0]?.id,
     });
   } catch (err) {
     next(err);
@@ -469,7 +470,7 @@ const getAllCourses = async (req, res, next) => {
 
     query += ' GROUP BY c.id ORDER BY c.course_code ASC';
 
-    const [courses] = await pool.query(query, params);
+    const [courses] = await db.query(query, params);
     return res.status(200).json({ courses, total: courses.length });
   } catch (err) {
     next(err);
@@ -480,7 +481,7 @@ const getAllCourses = async (req, res, next) => {
 const updateCourse = async (req, res, next) => {
   try {
     const { title, description, credit_units, is_active } = req.body;
-    await pool.query(
+    await db.query(
       `UPDATE courses SET
          title        = COALESCE(?, title),
          description  = COALESCE(?, description),
@@ -511,21 +512,21 @@ const assignCourse = async (req, res, next) => {
       });
     }
 
-    const [courseRows] = await pool.query(
+    const [courseRows] = await db.query(
       'SELECT id FROM courses WHERE id = ? AND is_active = 1', [course_id]
     );
     if (courseRows.length === 0) {
       return res.status(404).json({ message: 'Course not found or inactive.' });
     }
 
-    const [lecRows] = await pool.query(
+    const [lecRows] = await db.query(
       "SELECT id FROM lecturers WHERE id = ? AND status = 'active'", [lecturer_id]
     );
     if (lecRows.length === 0) {
       return res.status(404).json({ message: 'Lecturer not found or inactive.' });
     }
 
-    await pool.query(
+    await db.query(
       `INSERT INTO course_assignments (course_id, lecturer_id, session, semester)
        VALUES (?, ?, ?, ?)`,
       [course_id, lecturer_id, session, semester]
@@ -557,7 +558,7 @@ const getAllAssignments = async (req, res, next) => {
     if (semester) { query += ' AND ca.semester = ?'; params.push(semester); }
     query += ' ORDER BY ca.session DESC, c.course_code ASC';
 
-    const [assignments] = await pool.query(query, params);
+    const [assignments] = await db.query(query, params);
     return res.status(200).json({ assignments });
   } catch (err) {
     next(err);
@@ -577,7 +578,7 @@ const getComplaints = async (req, res, next) => {
     if (status) { query += ' AND status = ?'; params.push(status); }
     query += ' ORDER BY created_at DESC';
 
-    const [complaints] = await pool.query(query, params);
+    const [complaints] = await db.query(query, params);
     return res.status(200).json({ complaints });
   } catch (err) {
     next(err);
@@ -593,7 +594,7 @@ const replyComplaint = async (req, res, next) => {
       return res.status(400).json({ message: 'admin_reply is required.' });
     }
     const resolvedStatus = status || 'resolved';
-    await pool.query(
+    await db.query(
       'UPDATE complaints SET admin_reply = ?, status = ? WHERE id = ?',
       [admin_reply, resolvedStatus, req.params.id]
     );
@@ -610,7 +611,7 @@ const replyComplaint = async (req, res, next) => {
 // GET /api/admin/reports
 const getStudentReports = async (req, res, next) => {
   try {
-    const [reports] = await pool.query(
+    const [reports] = await db.query(
       `SELECT sr.*,
               l.full_name  AS lecturer_name,
               s.full_name  AS student_name, s.login_id AS student_login_id,
@@ -630,7 +631,7 @@ const getStudentReports = async (req, res, next) => {
 // PATCH /api/admin/reports/:id/review
 const reviewStudentReport = async (req, res, next) => {
   try {
-    await pool.query(
+    await db.query(
       "UPDATE student_reports SET status = 'reviewed' WHERE id = ?",
       [req.params.id]
     );
@@ -660,7 +661,7 @@ const getLeaveApplications = async (req, res, next) => {
     if (status) { query += ' AND la.status = ?'; params.push(status); }
     query += ' ORDER BY la.created_at DESC';
 
-    const [leaves] = await pool.query(query, params);
+    const [leaves] = await db.query(query, params);
     return res.status(200).json({ leaves });
   } catch (err) {
     next(err);
@@ -676,18 +677,18 @@ const updateLeaveStatus = async (req, res, next) => {
       return res.status(400).json({ message: 'Status must be approved or rejected.' });
     }
 
-    await pool.query(
+    await db.query(
       'UPDATE leave_applications SET status = ?, admin_comment = ? WHERE id = ?',
       [status, admin_comment || null, req.params.id]
     );
 
     // If approved, update lecturer status to on_leave
     if (status === 'approved') {
-      const [leaveRows] = await pool.query(
+      const [leaveRows] = await db.query(
         'SELECT lecturer_id FROM leave_applications WHERE id = ?', [req.params.id]
       );
       if (leaveRows.length > 0) {
-        await pool.query(
+        await db.query(
           "UPDATE lecturers SET status = 'on_leave' WHERE id = ?",
           [leaveRows[0].lecturer_id]
         );
@@ -722,7 +723,7 @@ const sendNotification = async (req, res, next) => {
       return res.status(400).json({ message: 'recipient_id is required for targeted notifications.' });
     }
 
-    await pool.query(
+    await db.query(
       `INSERT INTO notifications (recipient_type, recipient_id, title, message)
        VALUES (?, ?, ?, ?)`,
       [recipient_type, recipient_id || null, title, message]
@@ -741,12 +742,12 @@ const sendNotification = async (req, res, next) => {
 // GET /api/admin/dashboard
 const getDashboardStats = async (req, res, next) => {
   try {
-    const [[{ total_students }]]    = await pool.query('SELECT COUNT(*) AS total_students FROM students WHERE status = "active"');
-    const [[{ total_lecturers }]]   = await pool.query('SELECT COUNT(*) AS total_lecturers FROM lecturers WHERE status != "suspended"');
-    const [[{ total_courses }]]     = await pool.query('SELECT COUNT(*) AS total_courses FROM courses WHERE is_active = 1');
-    const [[{ pending_applications }]] = await pool.query('SELECT COUNT(*) AS pending_applications FROM applicants WHERE status = "pending"');
-    const [[{ open_complaints }]]   = await pool.query('SELECT COUNT(*) AS open_complaints FROM complaints WHERE status = "open"');
-    const [[{ pending_leaves }]]    = await pool.query('SELECT COUNT(*) AS pending_leaves FROM leave_applications WHERE status = "pending"');
+    const [[{ total_students }]]    = await db.query('SELECT COUNT(*) AS total_students FROM students WHERE status = "active"');
+    const [[{ total_lecturers }]]   = await db.query('SELECT COUNT(*) AS total_lecturers FROM lecturers WHERE status != "suspended"');
+    const [[{ total_courses }]]     = await db.query('SELECT COUNT(*) AS total_courses FROM courses WHERE is_active = 1');
+    const [[{ pending_applications }]] = await db.query('SELECT COUNT(*) AS pending_applications FROM applicants WHERE status = "pending"');
+    const [[{ open_complaints }]]   = await db.query('SELECT COUNT(*) AS open_complaints FROM complaints WHERE status = "open"');
+    const [[{ pending_leaves }]]    = await db.query('SELECT COUNT(*) AS pending_leaves FROM leave_applications WHERE status = "pending"');
 
     return res.status(200).json({
       stats: {

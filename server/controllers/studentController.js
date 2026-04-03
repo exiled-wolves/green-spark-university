@@ -1,4 +1,4 @@
-const pool              = require('../config/db');
+const db = require('../config/db');
 const { calculateGrade } = require('../utils/gradeCalculator');
 
 // ═══════════════════════════════════════════════════════════════
@@ -8,7 +8,7 @@ const { calculateGrade } = require('../utils/gradeCalculator');
 // GET /api/student/profile
 const getProfile = async (req, res, next) => {
   try {
-    const [rows] = await pool.query(
+    const [rows] = await db.query(
       `SELECT s.id, s.login_id, s.full_name, s.email, s.phone,
               s.date_of_birth, s.gender, s.state_of_origin, s.lga,
               s.nationality, s.passport_photo, s.address,
@@ -43,7 +43,7 @@ const getAvailableCourses = async (req, res, next) => {
     const { semester } = req.query;
 
     // Get student's level and department
-    const [studentRows] = await pool.query(
+    const [studentRows] = await db.query(
       'SELECT level, department_id FROM students WHERE id = ?',
       [req.user.id]
     );
@@ -53,7 +53,7 @@ const getAvailableCourses = async (req, res, next) => {
     const { level, department_id } = studentRows[0];
 
     // Get current session
-    const [sessionRows] = await pool.query(
+    const [sessionRows] = await db.query(
       'SELECT session FROM academic_sessions WHERE is_current = 1 LIMIT 1'
     );
     if (sessionRows.length === 0) {
@@ -86,7 +86,7 @@ const getAvailableCourses = async (req, res, next) => {
 
     query += ' ORDER BY c.course_code ASC';
 
-    const [courses] = await pool.query(query, params);
+    const [courses] = await db.query(query, params);
     return res.status(200).json({ courses, session });
   } catch (err) {
     next(err);
@@ -104,7 +104,7 @@ const registerCourse = async (req, res, next) => {
     }
 
     // Get current session
-    const [sessionRows] = await pool.query(
+    const [sessionRows] = await db.query(
       'SELECT session FROM academic_sessions WHERE is_current = 1 LIMIT 1'
     );
     if (sessionRows.length === 0) {
@@ -113,7 +113,7 @@ const registerCourse = async (req, res, next) => {
     const { session } = sessionRows[0];
 
     // Verify course exists and is active
-    const [courseRows] = await pool.query(
+    const [courseRows] = await db.query(
       'SELECT id, title, course_code, level, semester, department_id FROM courses WHERE id = ? AND is_active = 1',
       [course_id]
     );
@@ -123,7 +123,7 @@ const registerCourse = async (req, res, next) => {
     const course = courseRows[0];
 
     // Verify student's level matches course level
-    const [studentRows] = await pool.query(
+    const [studentRows] = await db.query(
       'SELECT level, department_id FROM students WHERE id = ?',
       [req.user.id]
     );
@@ -142,7 +142,7 @@ const registerCourse = async (req, res, next) => {
     }
 
     // Check already registered
-    const [dupRows] = await pool.query(
+    const [dupRows] = await db.query(
       `SELECT id FROM course_registrations
        WHERE student_id = ? AND course_id = ? AND session = ?`,
       [req.user.id, course_id, session]
@@ -154,7 +154,7 @@ const registerCourse = async (req, res, next) => {
     }
 
     // Register the course
-    await pool.query(
+    await db.query(
       `INSERT INTO course_registrations (student_id, course_id, session, semester)
        VALUES (?, ?, ?, ?)`,
       [req.user.id, course_id, session, course.semester]
@@ -172,7 +172,7 @@ const registerCourse = async (req, res, next) => {
 // Student drops a registered course (only within current session)
 const dropCourse = async (req, res, next) => {
   try {
-    const [sessionRows] = await pool.query(
+    const [sessionRows] = await db.query(
       'SELECT session FROM academic_sessions WHERE is_current = 1 LIMIT 1'
     );
     if (sessionRows.length === 0) {
@@ -180,7 +180,7 @@ const dropCourse = async (req, res, next) => {
     }
     const { session } = sessionRows[0];
 
-    const [result] = await pool.query(
+    const [result] = await db.query(
       `DELETE FROM course_registrations
        WHERE student_id = ? AND course_id = ? AND session = ?`,
       [req.user.id, req.params.course_id, session]
@@ -200,12 +200,12 @@ const dropCourse = async (req, res, next) => {
 // Rule 4 — view all registered courses for current session
 const getRegisteredCourses = async (req, res, next) => {
   try {
-    const [sessionRows] = await pool.query(
+    const [sessionRows] = await db.query(
       'SELECT session FROM academic_sessions WHERE is_current = 1 LIMIT 1'
     );
     const session = sessionRows[0]?.session || null;
 
-    const [courses] = await pool.query(
+    const [courses] = await db.query(
       `SELECT cr.id AS registration_id, cr.session, cr.semester, cr.registered_at,
               c.course_code, c.title, c.credit_units, c.level,
               l.full_name AS lecturer_name
@@ -254,7 +254,7 @@ const getResults = async (req, res, next) => {
 
     query += ' ORDER BY r.session DESC, c.course_code ASC';
 
-    const [results] = await pool.query(query, params);
+    const [results] = await db.query(query, params);
 
     // Calculate GPA for the filtered results
     let totalPoints = 0;
@@ -286,7 +286,7 @@ const getResults = async (req, res, next) => {
 // Rule 4 — fetch all notifications for this student
 const getNotifications = async (req, res, next) => {
   try {
-    const [notifications] = await pool.query(
+    const [notifications] = await db.query(
       `SELECT * FROM notifications
        WHERE (recipient_type = 'student' AND recipient_id = ?)
           OR recipient_type = 'all_students'
@@ -306,7 +306,7 @@ const getNotifications = async (req, res, next) => {
 // Rule 4 — mark a notification as read
 const markNotificationRead = async (req, res, next) => {
   try {
-    await pool.query(
+    await db.query(
       `UPDATE notifications SET is_read = 1
        WHERE id = ?
          AND (recipient_id = ? OR recipient_type = 'all_students')`,
@@ -322,7 +322,7 @@ const markNotificationRead = async (req, res, next) => {
 // Mark all notifications as read
 const markAllNotificationsRead = async (req, res, next) => {
   try {
-    await pool.query(
+    await db.query(
       `UPDATE notifications SET is_read = 1
        WHERE (recipient_type = 'student' AND recipient_id = ?)
           OR recipient_type = 'all_students'`,
@@ -348,7 +348,7 @@ const submitComplaint = async (req, res, next) => {
       return res.status(400).json({ message: 'Subject and message are required.' });
     }
 
-    await pool.query(
+    await db.query(
       `INSERT INTO complaints (sender_type, sender_id, subject, message)
        VALUES ('student', ?, ?, ?)`,
       [req.user.id, subject.trim(), message.trim()]
@@ -364,7 +364,7 @@ const submitComplaint = async (req, res, next) => {
 // Student views their own complaint history + admin replies
 const getMyComplaints = async (req, res, next) => {
   try {
-    const [complaints] = await pool.query(
+    const [complaints] = await db.query(
       `SELECT id, subject, message, status, admin_reply, created_at, updated_at
        FROM complaints
        WHERE sender_type = 'student' AND sender_id = ?

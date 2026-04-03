@@ -1,4 +1,4 @@
-const pool = require('../config/db');
+const db = require('../config/db');
 
 /**
  * Generates a unique student Login ID.
@@ -17,7 +17,7 @@ const generateStudentLoginId = async (deptAcronym, appliedYear) => {
     const rand = Math.floor(1000 + Math.random() * 9000); // 4-digit number
     loginId = `GSU/${deptAcronym}/${yy}/${rand}`;
 
-    const [rows] = await pool.query(
+    const [rows] = await db.query(
       'SELECT id FROM students WHERE login_id = ?',
       [loginId]
     );
@@ -40,7 +40,7 @@ const generateLecturerLoginId = async () => {
     const rand = String(Math.floor(1000 + Math.random() * 9000));
     loginId = `GSU-LEC-${rand}`;
 
-    const [rows] = await pool.query(
+    const [rows] = await db.query(
       'SELECT id FROM lecturers WHERE login_id = ?',
       [loginId]
     );
