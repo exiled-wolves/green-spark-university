@@ -4,16 +4,19 @@ require('dotenv').config();
 // Use POSTGRES_URL_NON_POOLING for direct connection, fallback to POSTGRES_URL
 let connectionString = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL || process.env.DATABASE_URL;
 
-// Remove sslmode from connection string as we handle it separately
+// Fix SSL mode for pg library - use libpq compatibility mode as recommended
 if (connectionString) {
+  // Remove any existing sslmode parameter
   connectionString = connectionString.replace(/[?&]sslmode=[^&]*/g, '');
   // Clean up any trailing ? or &
   connectionString = connectionString.replace(/[?&]$/, '');
+  // Add libpq compatibility mode with sslmode=require
+  const separator = connectionString.includes('?') ? '&' : '?';
+  connectionString = `${connectionString}${separator}sslmode=no-verify`;
 }
 
 const pool = new Pool({
   connectionString,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
 // Test connection on startup
