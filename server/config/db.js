@@ -1,6 +1,16 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+// Check for required environment variables
+if (!process.env.POSTGRES_URL && !process.env.DATABASE_URL) {
+  console.error('❌ ERROR: POSTGRES_URL or DATABASE_URL environment variable is not set');
+  process.exit(1);
+}
+
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️  WARNING: JWT_SECRET environment variable is not set. Auth will fail!');
+}
+
 // Use POSTGRES_URL_NON_POOLING for direct connection, fallback to POSTGRES_URL
 let connectionString = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL || process.env.DATABASE_URL;
 
