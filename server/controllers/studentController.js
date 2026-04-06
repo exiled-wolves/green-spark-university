@@ -8,7 +8,7 @@ const { calculateGrade } = require('../utils/gradeCalculator');
 // GET /api/student/profile
 const getProfile = async (req, res, next) => {
   try {
-    const [rows] = await pool.query(
+    const { rows } = await pool.query(
       `SELECT s.id, s.login_id, s.full_name, s.email, s.phone,
               s.date_of_birth, s.gender, s.state_of_origin, s.lga,
               s.nationality, s.passport_photo, s.address,
@@ -16,7 +16,7 @@ const getProfile = async (req, res, next) => {
               d.name AS department_name, d.acronym AS department_acronym
        FROM students s
        JOIN departments d ON s.department_id = d.id
-       WHERE s.id = ?`,
+       WHERE s.id = $1`,
       [req.user.id]
     );
 
@@ -43,8 +43,8 @@ const getAvailableCourses = async (req, res, next) => {
     const { semester } = req.query;
 
     // Get student's level and department
-    const [studentRows] = await pool.query(
-      'SELECT level, department_id FROM students WHERE id = ?',
+    const { rows: studentRows } = await pool.query(
+      'SELECT level, department_id FROM students WHERE id = $1',
       [req.user.id]
     );
     if (studentRows.length === 0) {
@@ -53,8 +53,8 @@ const getAvailableCourses = async (req, res, next) => {
     const { level, department_id } = studentRows[0];
 
     // Get current session
-    const [sessionRows] = await pool.query(
-      'SELECT session FROM academic_sessions WHERE is_current = 1 LIMIT 1'
+    const { rows: sessionRows } = await pool.query(
+      'SELECT session FROM academic_sessions WHERE is_current = true LIMIT 1'
     );
     if (sessionRows.length === 0) {
       return res.status(400).json({ message: 'No active academic session found.' });
@@ -69,24 +69,25 @@ const getAvailableCourses = async (req, res, next) => {
       FROM courses c
       JOIN departments d ON c.department_id = d.id
       LEFT JOIN course_assignments ca ON ca.course_id = c.id
-        AND ca.session = ? AND ca.semester = c.semester
+        AND ca.session = $1 AND ca.semester = c.semester
       LEFT JOIN lecturers l ON ca.lecturer_id = l.id
       LEFT JOIN course_registrations cr ON cr.course_id = c.id
-        AND cr.student_id = ? AND cr.session = ?
-      WHERE c.is_active = 1
-        AND c.level = ?
-        AND c.department_id = ?
+        AND cr.student_id = $2 AND cr.session = $3
+      WHERE c.is_active = true
+        AND c.level = $4
+        AND c.department_id = $5
     `;
     const params = [session, req.user.id, session, level, department_id];
+    let paramIndex = 6;
 
     if (semester) {
-      query += ' AND c.semester = ?';
+      query += ` AND c.semester = $${paramIndex++}`;
       params.push(semester);
     }
 
     query += ' ORDER BY c.course_code ASC';
 
-    const [courses] = await pool.query(query, params);
+    const { rows: courses } = await pool.query(query, params);
     return res.status(200).json({ courses, session });
   } catch (err) {
     next(err);
@@ -104,8 +105,8 @@ const registerCourse = async (req, res, next) => {
     }
 
     // Get current session
-    const [sessionRows] = await pool.query(
-      'SELECT session FROM academic_sessions WHERE is_current = 1 LIMIT 1'
+    const { rows: sessionRows } = await pool.query(
+      'SELECT session FROM academic_sessions WHERE is_current = true LIMIT 1'
     );
     if (sessionRows.length === 0) {
       return res.status(400).json({ message: 'No active academic session found.' });
@@ -113,8 +114,8 @@ const registerCourse = async (req, res, next) => {
     const { session } = sessionRows[0];
 
     // Verify course exists and is active
-    const [courseRows] = await pool.query(
-      'SELECT id, title, course_code, level, semester, department_id FROM courses WHERE id = ? AND is_active = 1',
+    const { rows: courseRows } = await pool.query(
+      'SELECT id, title, course_code, level, semester, department_id FROM courses WHERE id = $1 AND is_active = true',
       [course_id]
     );
     if (courseRows.length === 0) {
@@ -123,8 +124,8 @@ const registerCourse = async (req, res, next) => {
     const course = courseRows[0];
 
     // Verify student's level matches course level
-    const [studentRows] = await pool.query(
-      'SELECT level, department_id FROM students WHERE id = ?',
+    const { rows: studentRows } = await pool.query(
+      'SELECT level, department_id FROM students WHERE id = $1',
       [req.user.id]
     );
     const student = studentRows[0];
@@ -142,9 +143,9 @@ const registerCourse = async (req, res, next) => {
     }
 
     // Check already registered
-    const [dupRows] = await pool.query(
+    const { rows: dupRows } = await pool.query(
       `SELECT id FROM course_registrations
-       WHERE student_id = ? AND course_id = ? AND session = ?`,
+       WHERE student_id = $1 AND course_id = $2 AND session = $3`,
       [req.user.id, course_id, session]
     );
     if (dupRows.length > 0) {
@@ -156,7 +157,7 @@ const registerCourse = async (req, res, next) => {
     // Register the course
     await pool.query(
       `INSERT INTO course_registrations (student_id, course_id, session, semester)
-       VALUES (?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4)`,
       [req.user.id, course_id, session, course.semester]
     );
 
@@ -172,21 +173,21 @@ const registerCourse = async (req, res, next) => {
 // Student drops a registered course (only within current session)
 const dropCourse = async (req, res, next) => {
   try {
-    const [sessionRows] = await pool.query(
-      'SELECT session FROM academic_sessions WHERE is_current = 1 LIMIT 1'
+    const { rows: sessionRows } = await pool.query(
+      'SELECT session FROM academic_sessions WHERE is_current = true LIMIT 1'
     );
     if (sessionRows.length === 0) {
       return res.status(400).json({ message: 'No active academic session found.' });
     }
     const { session } = sessionRows[0];
 
-    const [result] = await pool.query(
+    const result = await pool.query(
       `DELETE FROM course_registrations
-       WHERE student_id = ? AND course_id = ? AND session = ?`,
+       WHERE student_id = $1 AND course_id = $2 AND session = $3`,
       [req.user.id, req.params.course_id, session]
     );
 
-    if (result.affectedRows === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ message: 'Registration not found for this session.' });
     }
 
@@ -200,12 +201,12 @@ const dropCourse = async (req, res, next) => {
 // Rule 4 — view all registered courses for current session
 const getRegisteredCourses = async (req, res, next) => {
   try {
-    const [sessionRows] = await pool.query(
-      'SELECT session FROM academic_sessions WHERE is_current = 1 LIMIT 1'
+    const { rows: sessionRows } = await pool.query(
+      'SELECT session FROM academic_sessions WHERE is_current = true LIMIT 1'
     );
     const session = sessionRows[0]?.session || null;
 
-    const [courses] = await pool.query(
+    const { rows: courses } = await pool.query(
       `SELECT cr.id AS registration_id, cr.session, cr.semester, cr.registered_at,
               c.course_code, c.title, c.credit_units, c.level,
               l.full_name AS lecturer_name
@@ -214,7 +215,7 @@ const getRegisteredCourses = async (req, res, next) => {
        LEFT JOIN course_assignments ca ON ca.course_id = c.id
          AND ca.session = cr.session AND ca.semester = cr.semester
        LEFT JOIN lecturers l ON ca.lecturer_id = l.id
-       WHERE cr.student_id = ? AND cr.session = ?
+       WHERE cr.student_id = $1 AND cr.session = $2
        ORDER BY c.course_code ASC`,
       [req.user.id, session]
     );
@@ -245,16 +246,17 @@ const getResults = async (req, res, next) => {
       FROM results r
       JOIN courses   c ON r.course_id   = c.id
       JOIN lecturers l ON r.lecturer_id = l.id
-      WHERE r.student_id = ?
+      WHERE r.student_id = $1
     `;
     const params = [req.user.id];
+    let paramIndex = 2;
 
-    if (session)  { query += ' AND r.session = ?';  params.push(session); }
-    if (semester) { query += ' AND r.semester = ?'; params.push(semester); }
+    if (session)  { query += ` AND r.session = $${paramIndex++}`;  params.push(session); }
+    if (semester) { query += ` AND r.semester = $${paramIndex++}`; params.push(semester); }
 
     query += ' ORDER BY r.session DESC, c.course_code ASC';
 
-    const [results] = await pool.query(query, params);
+    const { rows: results } = await pool.query(query, params);
 
     // Calculate GPA for the filtered results
     let totalPoints = 0;
@@ -286,15 +288,15 @@ const getResults = async (req, res, next) => {
 // Rule 4 — fetch all notifications for this student
 const getNotifications = async (req, res, next) => {
   try {
-    const [notifications] = await pool.query(
+    const { rows: notifications } = await pool.query(
       `SELECT * FROM notifications
-       WHERE (recipient_type = 'student' AND recipient_id = ?)
+       WHERE (recipient_type = 'student' AND recipient_id = $1)
           OR recipient_type = 'all_students'
        ORDER BY created_at DESC`,
       [req.user.id]
     );
 
-    const unreadCount = notifications.filter(n => n.is_read === 0).length;
+    const unreadCount = notifications.filter(n => n.is_read === false).length;
 
     return res.status(200).json({ notifications, unread_count: unreadCount });
   } catch (err) {
@@ -307,9 +309,9 @@ const getNotifications = async (req, res, next) => {
 const markNotificationRead = async (req, res, next) => {
   try {
     await pool.query(
-      `UPDATE notifications SET is_read = 1
-       WHERE id = ?
-         AND (recipient_id = ? OR recipient_type = 'all_students')`,
+      `UPDATE notifications SET is_read = true
+       WHERE id = $1
+         AND (recipient_id = $2 OR recipient_type = 'all_students')`,
       [req.params.id, req.user.id]
     );
     return res.status(200).json({ message: 'Notification marked as read.' });
@@ -323,8 +325,8 @@ const markNotificationRead = async (req, res, next) => {
 const markAllNotificationsRead = async (req, res, next) => {
   try {
     await pool.query(
-      `UPDATE notifications SET is_read = 1
-       WHERE (recipient_type = 'student' AND recipient_id = ?)
+      `UPDATE notifications SET is_read = true
+       WHERE (recipient_type = 'student' AND recipient_id = $1)
           OR recipient_type = 'all_students'`,
       [req.user.id]
     );
@@ -350,7 +352,7 @@ const submitComplaint = async (req, res, next) => {
 
     await pool.query(
       `INSERT INTO complaints (sender_type, sender_id, subject, message)
-       VALUES ('student', ?, ?, ?)`,
+       VALUES ('student', $1, $2, $3)`,
       [req.user.id, subject.trim(), message.trim()]
     );
 
@@ -364,10 +366,10 @@ const submitComplaint = async (req, res, next) => {
 // Student views their own complaint history + admin replies
 const getMyComplaints = async (req, res, next) => {
   try {
-    const [complaints] = await pool.query(
+    const { rows: complaints } = await pool.query(
       `SELECT id, subject, message, status, admin_reply, created_at, updated_at
        FROM complaints
-       WHERE sender_type = 'student' AND sender_id = ?
+       WHERE sender_type = 'student' AND sender_id = $1
        ORDER BY created_at DESC`,
       [req.user.id]
     );

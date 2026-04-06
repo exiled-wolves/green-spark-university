@@ -17,8 +17,8 @@ const generateStudentLoginId = async (deptAcronym, appliedYear) => {
     const rand = Math.floor(1000 + Math.random() * 9000); // 4-digit number
     loginId = `GSU/${deptAcronym}/${yy}/${rand}`;
 
-    const [rows] = await pool.query(
-      'SELECT id FROM students WHERE login_id = ?',
+    const { rows } = await pool.query(
+      'SELECT id FROM students WHERE login_id = $1',
       [loginId]
     );
     if (rows.length === 0) isUnique = true;
@@ -40,8 +40,8 @@ const generateLecturerLoginId = async () => {
     const rand = String(Math.floor(1000 + Math.random() * 9000));
     loginId = `GSU-LEC-${rand}`;
 
-    const [rows] = await pool.query(
-      'SELECT id FROM lecturers WHERE login_id = ?',
+    const { rows } = await pool.query(
+      'SELECT id FROM lecturers WHERE login_id = $1',
       [loginId]
     );
     if (rows.length === 0) isUnique = true;
