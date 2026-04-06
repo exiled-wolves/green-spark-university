@@ -1,11 +1,11 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+
 const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL || process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  connectionString,
+  ssl: connectionString?.includes('localhost') ? false : { rejectUnauthorized: false }
 });
 
 // Test connection on startup
