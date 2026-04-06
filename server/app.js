@@ -37,7 +37,13 @@ app.use('/api/lecturer',  lecturerRoutes);   // /api/lecturer/*         (lecture
 
 // ── Health check ─────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', university: 'Green Spark University API' });
+  res.json({ 
+    status: 'ok', 
+    university: 'Green Spark University API',
+    environment: process.env.NODE_ENV,
+    hasJWTSecret: !!process.env.JWT_SECRET,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // ── 404 handler ───────────────────────────────────────────────
