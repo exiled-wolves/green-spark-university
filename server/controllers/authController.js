@@ -33,8 +33,8 @@ const login = async (req, res, next) => {
     let role = null;
 
     // 1️⃣  Check admins table (login by email)
-    const [admins] = await pool.query(
-      'SELECT * FROM admins WHERE email = ?',
+    const { rows: admins } = await pool.query(
+      'SELECT * FROM admins WHERE email = $1',
       [login_id]
     );
     if (admins.length > 0) {
@@ -44,11 +44,11 @@ const login = async (req, res, next) => {
 
     // 2️⃣  Check students table (login by login_id e.g. GSU/CSC/25/4821)
     if (!user) {
-      const [students] = await pool.query(
+      const { rows: students } = await pool.query(
         `SELECT s.*, d.name AS department_name, d.acronym AS department_acronym
          FROM students s
          JOIN departments d ON s.department_id = d.id
-         WHERE s.login_id = ?`,
+         WHERE s.login_id = $1`,
         [login_id]
       );
       if (students.length > 0) {
@@ -59,11 +59,11 @@ const login = async (req, res, next) => {
 
     // 3️⃣  Check lecturers table (login by login_id e.g. GSU-LEC-0042)
     if (!user) {
-      const [lecturers] = await pool.query(
+      const { rows: lecturers } = await pool.query(
         `SELECT l.*, d.name AS department_name
          FROM lecturers l
          JOIN departments d ON l.department_id = d.id
-         WHERE l.login_id = ?`,
+         WHERE l.login_id = $1`,
         [login_id]
       );
       if (lecturers.length > 0) {
@@ -101,7 +101,7 @@ const login = async (req, res, next) => {
       token,
       role,
       // is_first_login tells React to redirect to change-password page
-      is_first_login: user.is_first_login === 1 ? true : false,
+      is_first_login: user.is_first_login === true,
       user: safeUser,
     });
 
@@ -146,8 +146,8 @@ const changePassword = async (req, res, next) => {
 
     // Fetch user from correct table
     const table = role === 'student' ? 'students' : 'lecturers';
-    const [rows] = await pool.query(
-      `SELECT id, password, is_first_login FROM ${table} WHERE id = ?`,
+    const { rows } = await pool.query(
+      `SELECT id, password, is_first_login FROM ${table} WHERE id = $1`,
       [id]
     );
 
@@ -168,7 +168,7 @@ const changePassword = async (req, res, next) => {
 
     // Update DB — also clears is_first_login flag
     await pool.query(
-      `UPDATE ${table} SET password = ?, is_first_login = 0 WHERE id = ?`,
+      `UPDATE ${table} SET password = $1, is_first_login = false WHERE id = $2`,
       [hashed, id]
     );
 
@@ -189,7 +189,7 @@ const getMe = async (req, res, next) => {
 
     let query = '';
     if (role === 'admin') {
-      query = 'SELECT id, full_name, email, created_at FROM admins WHERE id = ?';
+      query = 'SELECT id, full_name, email, created_at FROM admins WHERE id = $1';
     } else if (role === 'student') {
       query = `SELECT s.id, s.login_id, s.full_name, s.email, s.phone,
                       s.level, s.status, s.is_first_login, s.passport_photo,
@@ -198,7 +198,7 @@ const getMe = async (req, res, next) => {
                       d.name AS department_name, d.acronym AS department_acronym
                FROM students s
                JOIN departments d ON s.department_id = d.id
-               WHERE s.id = ?`;
+               WHERE s.id = $1`;
     } else if (role === 'lecturer') {
       query = `SELECT l.id, l.login_id, l.full_name, l.email, l.phone,
                       l.qualification, l.status, l.is_first_login, l.passport_photo,
@@ -206,10 +206,10 @@ const getMe = async (req, res, next) => {
                       d.name AS department_name
                FROM lecturers l
                JOIN departments d ON l.department_id = d.id
-               WHERE l.id = ?`;
+               WHERE l.id = $1`;
     }
 
-    const [rows] = await pool.query(query, [id]);
+    const { rows } = await pool.query(query, [id]);
 
     if (rows.length === 0) {
       return res.status(404).json({ message: 'User not found.' });

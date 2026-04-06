@@ -8,14 +8,14 @@ const { calculateGrade } = require('../utils/gradeCalculator');
 // GET /api/lecturer/profile
 const getProfile = async (req, res, next) => {
   try {
-    const [rows] = await pool.query(
+    const { rows } = await pool.query(
       `SELECT l.id, l.login_id, l.full_name, l.email, l.phone,
               l.qualification, l.passport_photo, l.status,
               l.is_first_login, l.created_at,
               d.name AS department_name, d.acronym AS department_acronym
        FROM lecturers l
        JOIN departments d ON l.department_id = d.id
-       WHERE l.id = ?`,
+       WHERE l.id = $1`,
       [req.user.id]
     );
 
@@ -39,10 +39,11 @@ const updateProfile = async (req, res, next) => {
 
     const fields  = [];
     const params  = [];
+    let paramIndex = 1;
 
-    if (phone)         { fields.push('phone = ?');         params.push(phone.trim()); }
-    if (qualification) { fields.push('qualification = ?'); params.push(qualification.trim()); }
-    if (passport_photo){ fields.push('passport_photo = ?');params.push(passport_photo); }
+    if (phone)         { fields.push(`phone = $${paramIndex++}`);         params.push(phone.trim()); }
+    if (qualification) { fields.push(`qualification = $${paramIndex++}`); params.push(qualification.trim()); }
+    if (passport_photo){ fields.push(`passport_photo = $${paramIndex++}`);params.push(passport_photo); }
 
     if (fields.length === 0) {
       return res.status(400).json({ message: 'No fields provided to update.' });
@@ -50,7 +51,7 @@ const updateProfile = async (req, res, next) => {
 
     params.push(req.user.id);
     await pool.query(
-      `UPDATE lecturers SET ${fields.join(', ')} WHERE id = ?`,
+      `UPDATE lecturers SET ${fields.join(', ')} WHERE id = $${paramIndex}`,
       params
     );
 
@@ -73,8 +74,8 @@ const getAssignedCourses = async (req, res, next) => {
     // Default to current session if not specified
     let targetSession = session;
     if (!targetSession) {
-      const [sessionRows] = await pool.query(
-        'SELECT session FROM academic_sessions WHERE is_current = 1 LIMIT 1'
+      const { rows: sessionRows } = await pool.query(
+        'SELECT session FROM academic_sessions WHERE is_current = true LIMIT 1'
       );
       targetSession = sessionRows[0]?.session || null;
     }
@@ -90,16 +91,17 @@ const getAssignedCourses = async (req, res, next) => {
       JOIN departments d ON c.department_id = d.id
       LEFT JOIN course_registrations cr ON cr.course_id = c.id
         AND cr.session = ca.session AND cr.semester = ca.semester
-      WHERE ca.lecturer_id = ?
+      WHERE ca.lecturer_id = $1
     `;
     const params = [req.user.id];
+    let paramIndex = 2;
 
-    if (targetSession) { query += ' AND ca.session = ?';  params.push(targetSession); }
-    if (semester)      { query += ' AND ca.semester = ?'; params.push(semester); }
+    if (targetSession) { query += ` AND ca.session = $${paramIndex++}`;  params.push(targetSession); }
+    if (semester)      { query += ` AND ca.semester = $${paramIndex++}`; params.push(semester); }
 
-    query += ' GROUP BY ca.id ORDER BY ca.session DESC, c.course_code ASC';
+    query += ' GROUP BY ca.id, c.id, d.name ORDER BY ca.session DESC, c.course_code ASC';
 
-    const [courses] = await pool.query(query, params);
+    const { rows: courses } = await pool.query(query, params);
     return res.status(200).json({ courses, session: targetSession });
   } catch (err) {
     next(err);
@@ -116,14 +118,15 @@ const getEnrolledStudents = async (req, res, next) => {
     // Confirm this course is actually assigned to this lecturer
     let assignmentQuery = `
       SELECT ca.id FROM course_assignments ca
-      WHERE ca.course_id = ? AND ca.lecturer_id = ?
+      WHERE ca.course_id = $1 AND ca.lecturer_id = $2
     `;
     const assignParams = [course_id, req.user.id];
+    let paramIndex = 3;
 
-    if (session)  { assignmentQuery += ' AND ca.session = ?';  assignParams.push(session); }
-    if (semester) { assignmentQuery += ' AND ca.semester = ?'; assignParams.push(semester); }
+    if (session)  { assignmentQuery += ` AND ca.session = $${paramIndex++}`;  assignParams.push(session); }
+    if (semester) { assignmentQuery += ` AND ca.semester = $${paramIndex++}`; assignParams.push(semester); }
 
-    const [assignment] = await pool.query(assignmentQuery, assignParams);
+    const { rows: assignment } = await pool.query(assignmentQuery, assignParams);
     if (assignment.length === 0) {
       return res.status(403).json({
         message: 'This course is not assigned to you or does not exist.',
@@ -133,21 +136,21 @@ const getEnrolledStudents = async (req, res, next) => {
     // Get current session fallback
     let targetSession = session;
     if (!targetSession) {
-      const [sessionRows] = await pool.query(
-        'SELECT session FROM academic_sessions WHERE is_current = 1 LIMIT 1'
+      const { rows: sessionRows } = await pool.query(
+        'SELECT session FROM academic_sessions WHERE is_current = true LIMIT 1'
       );
       targetSession = sessionRows[0]?.session || null;
     }
 
-    const [students] = await pool.query(
+    const { rows: students } = await pool.query(
       `SELECT s.id, s.login_id, s.full_name, s.email, s.phone, s.level,
               cr.semester, cr.registered_at,
               r.ca_score, r.exam_score, r.total_score, r.grade, r.remark
        FROM course_registrations cr
        JOIN students s ON cr.student_id = s.id
        LEFT JOIN results r ON r.student_id = s.id
-         AND r.course_id = ? AND r.session = cr.session AND r.semester = cr.semester
-       WHERE cr.course_id = ? AND cr.session = ?
+         AND r.course_id = $1 AND r.session = cr.session AND r.semester = cr.semester
+       WHERE cr.course_id = $2 AND cr.session = $3
        ORDER BY s.full_name ASC`,
       [course_id, course_id, targetSession]
     );
@@ -188,9 +191,9 @@ const uploadResult = async (req, res, next) => {
     }
 
     // Confirm course is assigned to this lecturer
-    const [assignment] = await pool.query(
+    const { rows: assignment } = await pool.query(
       `SELECT id FROM course_assignments
-       WHERE course_id = ? AND lecturer_id = ? AND session = ? AND semester = ?`,
+       WHERE course_id = $1 AND lecturer_id = $2 AND session = $3 AND semester = $4`,
       [course_id, req.user.id, session, semester]
     );
     if (assignment.length === 0) {
@@ -200,9 +203,9 @@ const uploadResult = async (req, res, next) => {
     }
 
     // Confirm student is enrolled in this course
-    const [enrollment] = await pool.query(
+    const { rows: enrollment } = await pool.query(
       `SELECT id FROM course_registrations
-       WHERE student_id = ? AND course_id = ? AND session = ? AND semester = ?`,
+       WHERE student_id = $1 AND course_id = $2 AND session = $3 AND semester = $4`,
       [student_id, course_id, session, semester]
     );
     if (enrollment.length === 0) {
@@ -219,20 +222,21 @@ const uploadResult = async (req, res, next) => {
     await pool.query(
       `INSERT INTO results
          (student_id, course_id, lecturer_id, session, semester, ca_score, exam_score, grade, remark)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         ca_score    = VALUES(ca_score),
-         exam_score  = VALUES(exam_score),
-         grade       = VALUES(grade),
-         remark      = VALUES(remark),
-         lecturer_id = VALUES(lecturer_id),
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (student_id, course_id, session, semester)
+       DO UPDATE SET
+         ca_score    = EXCLUDED.ca_score,
+         exam_score  = EXCLUDED.exam_score,
+         grade       = EXCLUDED.grade,
+         remark      = EXCLUDED.remark,
+         lecturer_id = EXCLUDED.lecturer_id,
          updated_at  = CURRENT_TIMESTAMP`,
       [student_id, course_id, req.user.id, session, semester, ca, exam, grade, remark]
     );
 
     // Fetch course title for notification
-    const [courseRows] = await pool.query(
-      'SELECT title, course_code FROM courses WHERE id = ?',
+    const { rows: courseRows } = await pool.query(
+      'SELECT title, course_code FROM courses WHERE id = $1',
       [course_id]
     );
     const courseTitle = courseRows[0]
@@ -242,7 +246,7 @@ const uploadResult = async (req, res, next) => {
     // Trigger notification to student (Rule 4)
     await pool.query(
       `INSERT INTO notifications (recipient_type, recipient_id, title, message)
-       VALUES ('student', ?, ?, ?)`,
+       VALUES ('student', $1, $2, $3)`,
       [
         student_id,
         'Result uploaded',
@@ -272,9 +276,9 @@ const uploadBulkResults = async (req, res, next) => {
     }
 
     // Confirm course is assigned to this lecturer
-    const [assignment] = await pool.query(
+    const { rows: assignment } = await pool.query(
       `SELECT id FROM course_assignments
-       WHERE course_id = ? AND lecturer_id = ? AND session = ? AND semester = ?`,
+       WHERE course_id = $1 AND lecturer_id = $2 AND session = $3 AND semester = $4`,
       [course_id, req.user.id, session, semester]
     );
     if (assignment.length === 0) {
@@ -283,8 +287,8 @@ const uploadBulkResults = async (req, res, next) => {
       });
     }
 
-    const [courseRows] = await pool.query(
-      'SELECT title, course_code FROM courses WHERE id = ?', [course_id]
+    const { rows: courseRows } = await pool.query(
+      'SELECT title, course_code FROM courses WHERE id = $1', [course_id]
     );
     const courseTitle = courseRows[0]
       ? `${courseRows[0].course_code} — ${courseRows[0].title}`
@@ -306,9 +310,9 @@ const uploadBulkResults = async (req, res, next) => {
       }
 
       // Check enrollment
-      const [enrolled] = await pool.query(
+      const { rows: enrolled } = await pool.query(
         `SELECT id FROM course_registrations
-         WHERE student_id = ? AND course_id = ? AND session = ? AND semester = ?`,
+         WHERE student_id = $1 AND course_id = $2 AND session = $3 AND semester = $4`,
         [student_id, course_id, session, semester]
       );
       if (enrolled.length === 0) {
@@ -322,18 +326,19 @@ const uploadBulkResults = async (req, res, next) => {
       await pool.query(
         `INSERT INTO results
            (student_id, course_id, lecturer_id, session, semester, ca_score, exam_score, grade, remark)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           ca_score = VALUES(ca_score), exam_score = VALUES(exam_score),
-           grade = VALUES(grade), remark = VALUES(remark),
-           lecturer_id = VALUES(lecturer_id), updated_at = CURRENT_TIMESTAMP`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (student_id, course_id, session, semester)
+         DO UPDATE SET
+           ca_score = EXCLUDED.ca_score, exam_score = EXCLUDED.exam_score,
+           grade = EXCLUDED.grade, remark = EXCLUDED.remark,
+           lecturer_id = EXCLUDED.lecturer_id, updated_at = CURRENT_TIMESTAMP`,
         [student_id, course_id, req.user.id, session, semester, ca, exam, grade, remark]
       );
 
       // Notify student
       await pool.query(
         `INSERT INTO notifications (recipient_type, recipient_id, title, message)
-         VALUES ('student', ?, ?, ?)`,
+         VALUES ('student', $1, $2, $3)`,
         [
           student_id,
           'Result uploaded',
@@ -371,8 +376,8 @@ const reportStudent = async (req, res, next) => {
     }
 
     // Confirm the course is assigned to this lecturer
-    const [assignment] = await pool.query(
-      'SELECT id FROM course_assignments WHERE course_id = ? AND lecturer_id = ?',
+    const { rows: assignment } = await pool.query(
+      'SELECT id FROM course_assignments WHERE course_id = $1 AND lecturer_id = $2',
       [course_id, req.user.id]
     );
     if (assignment.length === 0) {
@@ -382,8 +387,8 @@ const reportStudent = async (req, res, next) => {
     }
 
     // Confirm student exists
-    const [studentRows] = await pool.query(
-      'SELECT id, full_name FROM students WHERE id = ?',
+    const { rows: studentRows } = await pool.query(
+      'SELECT id, full_name FROM students WHERE id = $1',
       [student_id]
     );
     if (studentRows.length === 0) {
@@ -392,7 +397,7 @@ const reportStudent = async (req, res, next) => {
 
     await pool.query(
       `INSERT INTO student_reports (lecturer_id, student_id, course_id, reason)
-       VALUES (?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4)`,
       [req.user.id, student_id, course_id, reason.trim()]
     );
 
@@ -408,14 +413,14 @@ const reportStudent = async (req, res, next) => {
 // Rule 5 — view own filed reports
 const getMyReports = async (req, res, next) => {
   try {
-    const [reports] = await pool.query(
+    const { rows: reports } = await pool.query(
       `SELECT sr.id, sr.reason, sr.status, sr.created_at,
               s.full_name AS student_name, s.login_id AS student_login_id,
               c.course_code, c.title AS course_title
        FROM student_reports sr
        JOIN students s ON sr.student_id = s.id
        JOIN courses  c ON sr.course_id  = c.id
-       WHERE sr.lecturer_id = ?
+       WHERE sr.lecturer_id = $1
        ORDER BY sr.created_at DESC`,
       [req.user.id]
     );
@@ -453,9 +458,9 @@ const applyForLeave = async (req, res, next) => {
     }
 
     // Check if lecturer already has a pending leave
-    const [pending] = await pool.query(
+    const { rows: pending } = await pool.query(
       `SELECT id FROM leave_applications
-       WHERE lecturer_id = ? AND status = 'pending'`,
+       WHERE lecturer_id = $1 AND status = 'pending'`,
       [req.user.id]
     );
     if (pending.length > 0) {
@@ -467,7 +472,7 @@ const applyForLeave = async (req, res, next) => {
     await pool.query(
       `INSERT INTO leave_applications
          (lecturer_id, leave_type, start_date, end_date, reason)
-       VALUES (?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5)`,
       [req.user.id, leave_type, start_date, end_date, reason.trim()]
     );
 
@@ -483,11 +488,11 @@ const applyForLeave = async (req, res, next) => {
 // Rule 5 — view own leave application history
 const getMyLeaves = async (req, res, next) => {
   try {
-    const [leaves] = await pool.query(
+    const { rows: leaves } = await pool.query(
       `SELECT id, leave_type, start_date, end_date, reason,
               status, admin_comment, created_at, updated_at
        FROM leave_applications
-       WHERE lecturer_id = ?
+       WHERE lecturer_id = $1
        ORDER BY created_at DESC`,
       [req.user.id]
     );
@@ -513,7 +518,7 @@ const submitComplaint = async (req, res, next) => {
 
     await pool.query(
       `INSERT INTO complaints (sender_type, sender_id, subject, message)
-       VALUES ('lecturer', ?, ?, ?)`,
+       VALUES ('lecturer', $1, $2, $3)`,
       [req.user.id, subject.trim(), message.trim()]
     );
 
@@ -527,10 +532,10 @@ const submitComplaint = async (req, res, next) => {
 // Rule 5 — view own complaint history + admin replies
 const getMyComplaints = async (req, res, next) => {
   try {
-    const [complaints] = await pool.query(
+    const { rows: complaints } = await pool.query(
       `SELECT id, subject, message, status, admin_reply, created_at, updated_at
        FROM complaints
-       WHERE sender_type = 'lecturer' AND sender_id = ?
+       WHERE sender_type = 'lecturer' AND sender_id = $1
        ORDER BY created_at DESC`,
       [req.user.id]
     );

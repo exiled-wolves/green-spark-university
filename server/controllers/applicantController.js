@@ -79,8 +79,8 @@ const submitApplication = async (req, res, next) => {
     }
 
     // ── Check department exists ───────────────────────────────
-    const [deptRows] = await pool.query(
-      'SELECT id FROM departments WHERE id = ?',
+    const { rows: deptRows } = await pool.query(
+      'SELECT id FROM departments WHERE id = $1',
       [department_id]
     );
     if (deptRows.length === 0) {
@@ -88,8 +88,8 @@ const submitApplication = async (req, res, next) => {
     }
 
     // ── Check for duplicate email or JAMB reg number ──────────
-    const [dupEmail] = await pool.query(
-      'SELECT id FROM applicants WHERE email = ?',
+    const { rows: dupEmail } = await pool.query(
+      'SELECT id FROM applicants WHERE email = $1',
       [email]
     );
     if (dupEmail.length > 0) {
@@ -98,8 +98,8 @@ const submitApplication = async (req, res, next) => {
       });
     }
 
-    const [dupJamb] = await pool.query(
-      'SELECT id FROM applicants WHERE jamb_reg_number = ?',
+    const { rows: dupJamb } = await pool.query(
+      'SELECT id FROM applicants WHERE jamb_reg_number = $1',
       [jamb_reg_number]
     );
     if (dupJamb.length > 0) {
@@ -115,14 +115,15 @@ const submitApplication = async (req, res, next) => {
     const applied_year = new Date().getFullYear();
 
     // ── Insert application ────────────────────────────────────
-    const [result] = await pool.query(
+    const { rows: result } = await pool.query(
       `INSERT INTO applicants
         (full_name, date_of_birth, gender, state_of_origin, lga,
          nationality, phone, email, passport_photo, department_id,
          jamb_reg_number, jamb_score, olevel_results,
          next_of_kin_name, next_of_kin_phone, next_of_kin_relation,
          residential_address, applied_year, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'pending')
+       RETURNING id`,
       [
         full_name.trim(),
         date_of_birth,
@@ -147,7 +148,7 @@ const submitApplication = async (req, res, next) => {
 
     return res.status(201).json({
       message: 'Application submitted successfully. You will be notified via email of the outcome.',
-      application_id: result.insertId,
+      application_id: result[0].id,
     });
 
   } catch (err) {
@@ -161,7 +162,7 @@ const submitApplication = async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────
 const getDepartments = async (req, res, next) => {
   try {
-    const [departments] = await pool.query(
+    const { rows: departments } = await pool.query(
       'SELECT id, name, acronym FROM departments ORDER BY name ASC'
     );
     return res.status(200).json({ departments });
