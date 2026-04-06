@@ -40,6 +40,9 @@ const Login = () => {
       if (data.role === 'lecturer') return navigate('/lecturer/dashboard');
 
     } catch (err) {
+      console.error('[v0] Login error:', err);
+      console.error('[v0] Error response:', err.response?.data);
+      console.error('[v0] Error status:', err.response?.status);
       setError(err.response?.data?.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
