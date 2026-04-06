@@ -1,7 +1,7 @@
 const bcrypt   = require('bcryptjs');
 const pool     = require('../config/db');
 const { sendAdmissionEmail, sendRejectionEmail } = require('../config/mailer');
-const { generateStudentLoginId, generateLecturerLoginId } = require('../utils/generateLoginID');
+const { generateStudentLoginId, generateLecturerLoginId } = require('../utils/generateLoginId');
 
 // ═══════════════════════════════════════════════════════════════
 //  APPLICATIONS — Rule 2
