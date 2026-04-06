@@ -1,11 +1,16 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+// Use POSTGRES_URL_NON_POOLING for direct connection, fallback to POSTGRES_URL
+const connectionString = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL || process.env.DATABASE_URL;
+
+// Append sslmode if not present
+const finalConnectionString = connectionString?.includes('sslmode=') 
+  ? connectionString 
+  : `${connectionString}${connectionString?.includes('?') ? '&' : '?'}sslmode=require`;
+
 const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL || process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  connectionString: finalConnectionString,
 });
 
 // Test connection on startup
