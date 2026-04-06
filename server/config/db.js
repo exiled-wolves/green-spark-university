@@ -2,13 +2,18 @@ const { Pool } = require('pg');
 require('dotenv').config();
 
 // Use POSTGRES_URL_NON_POOLING for direct connection, fallback to POSTGRES_URL
-const connectionString = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL || process.env.DATABASE_URL;
+let connectionString = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL || process.env.DATABASE_URL;
+
+// Remove sslmode from connection string as we handle it separately
+if (connectionString) {
+  connectionString = connectionString.replace(/[?&]sslmode=[^&]*/g, '');
+  // Clean up any trailing ? or &
+  connectionString = connectionString.replace(/[?&]$/, '');
+}
 
 const pool = new Pool({
   connectionString,
-  ssl: {
-    rejectUnauthorized: false // Required for Supabase self-signed certificates
-  }
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
 // Test connection on startup
