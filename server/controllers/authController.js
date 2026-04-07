@@ -24,6 +24,7 @@ const signToken = (id, role) => {
 const login = async (req, res, next) => {
   try {
     const { login_id, password } = req.body;
+    console.log('[v0] Login attempt with:', { login_id, passwordProvided: !!password });
 
     if (!login_id || !password) {
       return res.status(400).json({ message: 'Login ID and password are required.' });
@@ -37,9 +38,11 @@ const login = async (req, res, next) => {
       'SELECT * FROM admins WHERE email = $1',
       [login_id]
     );
+    console.log('[v0] Admins found:', admins.length);
     if (admins.length > 0) {
       user = admins[0];
       role = 'admin';
+      console.log('[v0] Admin user found, checking password...');
     }
 
     // 2️⃣  Check students table (login by login_id e.g. GSU/CSC/25/4821)
